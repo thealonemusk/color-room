@@ -1,0 +1,21 @@
+{
+  "name": "virtual-house-painter",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "autoprefixer": "10.4.14",
+    "canvas": "^3.1.2",
+    "konva": "9.3.1",
+    "next": "13.5.6",
+    "postcss": "8.4.26",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "react-konva": "17.1.1",
+    "tailwindcss": "3.4.7"
+  }
+}
