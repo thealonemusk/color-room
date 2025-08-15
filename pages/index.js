@@ -1,6 +1,12 @@
 import { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { FiImage, FiEdit3, FiPalette, FiZap, FiEye } from 'react-icons/fi'
+import UploadImage from '../components/UploadImage'
+import ColorPicker from '../components/ColorPicker'
+import AISuggestions from '../components/AISuggestions'
+import BeforeAfterSlider from '../components/BeforeAfterSlider'
+import MaskTool from '../components/MaskTool'
+import Toolbar from '../components/Toolbar'
 
 export default function Home() {
   // State management
@@ -181,6 +187,12 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800 transition-colors duration-300">
+      {/* Toolbar */}
+      <Toolbar 
+        onToggleDarkMode={() => setIsDarkMode(!isDarkMode)} 
+        isDarkMode={isDarkMode} 
+      />
+
       {/* Header */}
       <header className="pt-8 pb-6">
         <div className="container">
@@ -266,73 +278,52 @@ export default function Home() {
             transition={{ duration: 0.2 }}
           >
             {activeTab === 'upload' && (
-              <div className="tool-panel fade-in">
-                <div className="flex items-center gap-2 mb-4">
-                  <FiImage className="text-2xl text-blue-500" />
-                  <h2 className="text-xl font-semibold">Image Gallery</h2>
-                </div>
-                <div className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-8 text-center">
-                  <FiImage className="mx-auto text-4xl text-gray-400 mb-4" />
-                  <p className="text-lg font-medium mb-2">Upload functionality coming soon</p>
-                  <p className="text-sm text-gray-500">Component import issue being resolved</p>
-                </div>
-              </div>
+              <UploadImage
+                onSelect={handleSelectImage}
+                images={images}
+                onRemoveImage={handleRemoveImage}
+              />
             )}
 
             {activeTab === 'mask' && (
-              <div className="tool-panel fade-in">
-                <div className="flex items-center gap-2 mb-4">
-                  <FiEdit3 className="text-2xl text-green-500" />
-                  <h2 className="text-xl font-semibold">Mask Editor</h2>
-                </div>
-                <div className="border-2 border-gray-300 dark:border-gray-600 rounded-xl p-8 text-center">
-                  <FiEdit3 className="mx-auto text-4xl text-gray-400 mb-4" />
-                  <p className="text-lg font-medium mb-2">Masking tools coming soon</p>
-                  <p className="text-sm text-gray-500">Component import issue being resolved</p>
-                </div>
-              </div>
+              <MaskTool
+                imageURL={currentImage?.url}
+                onAddMask={handleAddMask}
+                masks={masks}
+                onClear={handleClearMasks}
+                onDeleteMask={handleDeleteMask}
+                selectedMaskIndex={selectedMaskIndex}
+                onSelectMask={setSelectedMaskIndex}
+              />
             )}
 
             {activeTab === 'color' && (
-              <div className="tool-panel fade-in">
-                <div className="flex items-center gap-2 mb-4">
-                  <FiPalette className="text-2xl text-purple-500" />
-                  <h2 className="text-xl font-semibold">Color Picker</h2>
-                </div>
-                <div className="border-2 border-gray-300 dark:border-gray-600 rounded-xl p-8 text-center">
-                  <FiPalette className="mx-auto text-4xl text-gray-400 mb-4" />
-                  <p className="text-lg font-medium mb-2">Color picker coming soon</p>
-                  <p className="text-sm text-gray-500">Component import issue being resolved</p>
-                </div>
-              </div>
+              <ColorPicker
+                value={currentColor}
+                onChange={setCurrentColor}
+                onApply={() => applyColorToMasks(currentColor)}
+                onExport={handleExport}
+                savedColors={savedColors}
+                onSaveColor={handleSaveColor}
+                onRemoveColor={handleRemoveColor}
+              />
             )}
 
             {activeTab === 'ai' && (
-              <div className="tool-panel fade-in">
-                <div className="flex items-center gap-2 mb-4">
-                  <FiZap className="text-2xl text-yellow-500" />
-                  <h2 className="text-xl font-semibold">AI Color Suggestions</h2>
-                </div>
-                <div className="border-2 border-gray-300 dark:border-gray-600 rounded-xl p-8 text-center">
-                  <FiZap className="mx-auto text-4xl text-gray-400 mb-4" />
-                  <p className="text-lg font-medium mb-2">AI suggestions coming soon</p>
-                  <p className="text-sm text-gray-500">Component import issue being resolved</p>
-                </div>
-              </div>
+              <AISuggestions
+                onApply={(hex) => {
+                  setCurrentColor(hex)
+                  applyColorToMasks(hex)
+                }}
+              />
             )}
 
             {activeTab === 'compare' && (
-              <div className="tool-panel fade-in">
-                <div className="flex items-center gap-2 mb-4">
-                  <FiEye className="text-2xl text-blue-500" />
-                  <h2 className="text-xl font-semibold">Before / After Comparison</h2>
-                </div>
-                <div className="border-2 border-gray-300 dark:border-gray-600 rounded-xl p-8 text-center">
-                  <FiEye className="mx-auto text-4xl text-gray-400 mb-4" />
-                  <p className="text-lg font-medium mb-2">Comparison slider coming soon</p>
-                  <p className="text-sm text-gray-500">Component import issue being resolved</p>
-                </div>
-              </div>
+              <BeforeAfterSlider
+                original={currentImage?.url}
+                recolored={recoloredDataUrl}
+                onExport={handleExport}
+              />
             )}
           </motion.div>
         </AnimatePresence>
