@@ -7,6 +7,7 @@ import AISuggestions from '../components/AISuggestions'
 import BeforeAfterSlider from '../components/BeforeAfterSlider'
 import MaskTool from '../components/MaskTool'
 import Toolbar from '../components/Toolbar'
+import * as React from 'react'
 
 export default function Home() {
   // State management
@@ -228,7 +229,7 @@ export default function Home() {
                     : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
                 }`}
               >
-                <tab.icon className="w-4 h-4" />
+                {React.createElement(tab.icon, { className: 'w-4 h-4' })}
                 {tab.label}
               </motion.button>
             ))}

@@ -1,8 +1,16 @@
+// Next.js uses React under the hood. All components and utilities here are standard React/Next.js patterns.
+// This file fetches color palettes from the Gemini API or returns mock data if no API key is set.
+
 export async function fetchPalettes(roomType, stylePref) {
   const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY
   
   if (!apiKey) {
     // Return mocked palettes when no API key is provided
+    return getMockPalettes(roomType, stylePref)
+  }
+
+  if (typeof fetch !== 'function') {
+    console.warn('fetch is not available in this environment. Are you running on the server without a fetch polyfill?')
     return getMockPalettes(roomType, stylePref)
   }
 
@@ -49,6 +57,9 @@ Focus on colors that work well together and suit the ${stylePref} style for a ${
     })
 
     if (!response.ok) {
+      // Log the error details for debugging
+      const errorText = await response.text().catch(() => '')
+      console.error(`Gemini API error: ${response.status} ${response.statusText}\n${errorText}`)
       throw new Error(`Gemini API error: ${response.status} ${response.statusText}`)
     }
 

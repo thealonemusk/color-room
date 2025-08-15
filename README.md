@@ -215,3 +215,26 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ---
 
 Made with ❤️ by [Your Name]
+
+# Troubleshooting
+
+## Common Issues
+
+### 1. HTTP 500 Errors in Browser Console
+- **Missing .env.local file**: If you see HTTP 500 errors, especially when using AI Suggestions, you likely have not set up your Gemini API key. See below for instructions.
+- **API Key Not Set**: The AI Suggestions feature requires a valid Gemini API key. If not set, the app will use mock data, but if the fetch fails, you may see errors.
+- **Network Issues**: Ensure your internet connection is stable and the Google Gemini API is accessible from your region.
+
+### 2. Why is React used in a Next.js project?
+- **Next.js is built on React**: All Next.js pages and components are React components. This is standard and expected.
+- **Dynamic Component Rendering**: The use of `React.createElement` is required when rendering a component from a variable (like an icon from a tab config). This is valid in both React and Next.js.
+
+### 3. Export/Import Issues
+- All components in `components/` use `export default` and are imported as default imports. If you see an error about a component being undefined, check for typos or missing files.
+
+### 4. Setting up .env.local
+- Create a `.env.local` file in the project root:
+  ```
+  NEXT_PUBLIC_GEMINI_API_KEY=your_actual_api_key_here
+  ```
+- If you do not have an API key, the app will use mock data for AI Suggestions, but you may see warnings or errors if the fetch fails.
