@@ -7,7 +7,7 @@ function useKonvaImage(src) {
   const [img, setImg] = useState(null)
   useEffect(() => {
     if (!src) return setImg(null)
-    const i = new window.Image()
+    const i = new Image()
     i.crossOrigin = 'anonymous'
     i.src = src
     i.onload = () => setImg(i)
@@ -25,6 +25,20 @@ export default function MaskTool({
   selectedMaskIndex,
   onSelectMask
 }) {
+  // Check if we're in a browser environment
+  if (typeof window === 'undefined') {
+    return (
+      <div className="tool-panel fade-in">
+        <div className="flex items-center gap-2 mb-4">
+          <FiEdit3 className="text-2xl text-green-500" />
+          <h2 className="text-xl font-semibold">Mask Editor</h2>
+        </div>
+        <div className="p-8 text-center text-gray-500">
+          <p>Loading mask editor...</p>
+        </div>
+      </div>
+    )
+  }
   const img = useKonvaImage(imageURL)
   const stageRef = useRef()
   const transformerRef = useRef()

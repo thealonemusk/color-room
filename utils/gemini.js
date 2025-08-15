@@ -9,8 +9,8 @@ export async function fetchPalettes(roomType, stylePref) {
     return getMockPalettes(roomType, stylePref)
   }
 
-  if (typeof fetch !== 'function') {
-    console.warn('fetch is not available in this environment. Are you running on the server without a fetch polyfill?')
+  // Check if we're in a browser environment
+  if (typeof window === 'undefined') {
     return getMockPalettes(roomType, stylePref)
   }
 

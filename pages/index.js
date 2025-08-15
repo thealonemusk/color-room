@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { FiImage, FiEdit3, FiPalette, FiZap, FiEye } from 'react-icons/fi'
 import UploadImage from '../components/UploadImage'
@@ -7,7 +7,6 @@ import AISuggestions from '../components/AISuggestions'
 import BeforeAfterSlider from '../components/BeforeAfterSlider'
 import MaskTool from '../components/MaskTool'
 import Toolbar from '../components/Toolbar'
-import * as React from 'react'
 
 export default function Home() {
   // State management
@@ -20,6 +19,7 @@ export default function Home() {
   const [savedColors, setSavedColors] = useState([])
   const [isDarkMode, setIsDarkMode] = useState(false)
   const [activeTab, setActiveTab] = useState('upload')
+  const [error, setError] = useState(null)
 
   // Dark mode effect
   useEffect(() => {
@@ -34,12 +34,16 @@ export default function Home() {
   const currentImage = currentImageIndex !== null ? images[currentImageIndex] : null
 
   function handleSelectImage(file, url) {
-    const newImage = { file, url }
-    setImages(prev => [...prev, newImage])
-    setCurrentImageIndex(images.length)
-    setMasks([])
-    setRecoloredDataUrl(null)
-    setSelectedMaskIndex(null)
+    try {
+      const newImage = { file, url }
+      setImages(prev => [...prev, newImage])
+      setCurrentImageIndex(images.length)
+      setMasks([])
+      setRecoloredDataUrl(null)
+      setSelectedMaskIndex(null)
+    } catch (err) {
+      setError('Failed to load image: ' + err.message)
+    }
   }
 
   function handleRemoveImage(index) {
@@ -83,7 +87,8 @@ export default function Home() {
 
   // Core: apply color to masked regions using an offscreen canvas
   async function applyColorToMasks(hex) {
-    if (!currentImage?.url) return
+    try {
+      if (!currentImage?.url) return
     
     const img = await loadImage(currentImage.url)
     const w = img.width
@@ -157,6 +162,10 @@ export default function Home() {
     const dataUrl = off.toDataURL('image/png')
     setRecoloredDataUrl(dataUrl)
     return dataUrl
+    } catch (err) {
+      setError('Failed to apply color: ' + err.message)
+      return null
+    }
   }
 
   function loadImage(url) {
@@ -185,6 +194,24 @@ export default function Home() {
     { id: 'ai', label: 'AI', icon: FiZap },
     { id: 'compare', label: 'Compare', icon: FiEye }
   ]
+
+  // Error boundary
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800 transition-colors duration-300 flex items-center justify-center">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold text-red-600 mb-4">Something went wrong</h1>
+          <p className="text-gray-600 dark:text-gray-400 mb-4">{error}</p>
+          <button 
+            onClick={() => setError(null)}
+            className="btn-primary"
+          >
+            Try Again
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800 transition-colors duration-300">
