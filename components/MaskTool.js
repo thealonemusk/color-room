@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react'
-import { Stage, Layer, Image as KonvaImage, Line, Polygon, Transformer } from 'react-konva'
 import { motion } from 'framer-motion'
 import { FiEdit3, FiTrash2, FiZoomIn, FiZoomOut, FiMove, FiRotateCcw } from 'react-icons/fi'
 
@@ -25,6 +24,17 @@ export default function MaskTool({
   selectedMaskIndex,
   onSelectMask
 }) {
+  // Load react-konva on the client at runtime
+  const [KonvaModules, setKonvaModules] = useState(null)
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    let mounted = true
+    import('react-konva')
+      .then(mod => { if (mounted) setKonvaModules(mod) })
+      .catch(err => { console.error('Failed to load react-konva:', err) })
+    return () => { mounted = false }
+  }, [])
+
   // Check if we're in a browser environment
   if (typeof window === 'undefined') {
     return (
@@ -39,6 +49,7 @@ export default function MaskTool({
       </div>
     )
   }
+
   const img = useKonvaImage(imageURL)
   const stageRef = useRef()
   const transformerRef = useRef()
@@ -58,15 +69,15 @@ export default function MaskTool({
   }, [imageURL])
 
   useEffect(() => {
-    if (selectedMaskIndex !== null && transformerRef.current) {
+    if (selectedMaskIndex !== null && transformerRef.current && stageRef.current && KonvaModules) {
       const stage = stageRef.current
       const selectedNode = stage.findOne(`#mask-${selectedMaskIndex}`)
-      if (selectedNode) {
+      if (selectedNode && transformerRef.current) {
         transformerRef.current.nodes([selectedNode])
         transformerRef.current.getLayer().batchDraw()
       }
     }
-  }, [selectedMaskIndex])
+  }, [selectedMaskIndex, KonvaModules])
 
   function handleStageClick(e) {
     if (tool !== 'draw' || !drawing) return
@@ -218,8 +229,14 @@ export default function MaskTool({
 
       {/* Canvas Area */}
       <div className="border-2 border-gray-300 dark:border-gray-600 rounded-xl overflow-hidden bg-gray-50 dark:bg-gray-900">
-        {img ? (
-          <Stage 
+        { !KonvaModules ? (
+          <div className="p-8 text-center text-gray-500">
+            <FiEdit3 className="mx-auto text-4xl mb-4 opacity-50" />
+            <p>Loading mask editor...</p>
+          </div>
+        ) : img ? (
+          // ...use the loaded Konva components...
+          <KonvaModules.Stage 
             width={stageWidth} 
             height={stageHeight} 
             onMouseDown={handleStageClick}
@@ -231,8 +248,8 @@ export default function MaskTool({
             y={position.y}
             draggable={tool === 'move'}
           >
-            <Layer>
-              <KonvaImage 
+            <KonvaModules.Layer>
+              <KonvaModules.Image 
                 image={img} 
                 x={0} 
                 y={0} 
@@ -242,11 +259,11 @@ export default function MaskTool({
 
               {/* Existing Masks */}
               {masks.map((mask, i) => (
-                <Polygon
+                <KonvaModules.Line
                   key={i}
                   id={`mask-${i}`}
                   points={mask.points}
-                  closed
+                  closed={true}
                   stroke={selectedMaskIndex === i ? "#ef4444" : "#00b4d8"}
                   strokeWidth={selectedMaskIndex === i ? 3 : 2}
                   opacity={0.8}
@@ -258,7 +275,7 @@ export default function MaskTool({
 
               {/* Current Drawing */}
               {currentPoints.length >= 2 && (
-                <Line 
+                <KonvaModules.Line 
                   points={currentPoints} 
                   stroke="#ef476f" 
                   strokeWidth={3} 
@@ -268,9 +285,9 @@ export default function MaskTool({
               )}
 
               {/* Transformer for selected mask */}
-              <Transformer ref={transformerRef} />
-            </Layer>
-          </Stage>
+              <KonvaModules.Transformer ref={transformerRef} />
+            </KonvaModules.Layer>
+          </KonvaModules.Stage>
         ) : (
           <div className="p-8 text-center text-gray-500">
             <FiEdit3 className="mx-auto text-4xl mb-4 opacity-50" />

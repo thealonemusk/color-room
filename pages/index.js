@@ -1,14 +1,56 @@
 import React, { useState, useRef, useEffect } from 'react'
+import dynamic from 'next/dynamic'
 import { motion, AnimatePresence } from 'framer-motion'
 import { FiImage, FiEdit3, FiPalette, FiZap, FiEye } from 'react-icons/fi'
 import UploadImage from '../components/UploadImage'
 import ColorPicker from '../components/ColorPicker'
 import AISuggestions from '../components/AISuggestions'
 import BeforeAfterSlider from '../components/BeforeAfterSlider'
-import MaskTool from '../components/MaskTool'
+const MaskTool = dynamic(() => import('../components/MaskTool'), { ssr: false })
 import Toolbar from '../components/Toolbar'
 
 export default function Home() {
+  // Debug: log imported component types on client to find undefined exports
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    console.log('component types:', {
+      UploadImage: typeof UploadImage,
+      MaskTool: typeof MaskTool,
+      ColorPicker: typeof ColorPicker,
+      AISuggestions: typeof AISuggestions,
+      BeforeAfterSlider: typeof BeforeAfterSlider,
+      Toolbar: typeof Toolbar,
+      FiImage: typeof FiImage,
+    })
+  }, [])
+
+  // Debug: check imported component availability and show friendly error if any are undefined
+  const _imports = { UploadImage, MaskTool, ColorPicker, AISuggestions, BeforeAfterSlider, Toolbar }
+  const _invalid = Object.entries(_imports).filter(([, v]) => v === undefined || v === null)
+  if (_invalid.length > 0) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-8">
+        <div className="max-w-xl w-full bg-white dark:bg-gray-800 rounded-xl p-6 shadow">
+          <h2 className="text-xl font-semibold mb-3 text-red-600">Invalid component imports</h2>
+          <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">One or more components imported by this page are undefined. This causes React to throw "Element type is invalid" when rendering.</p>
+          <ul className="list-disc pl-5 space-y-1 text-sm text-gray-700 dark:text-gray-300">
+            {_invalid.map(([name]) => (
+              <li key={name}><strong>{name}</strong> is undefined</li>
+            ))}
+          </ul>
+          <div className="mt-4 text-sm text-gray-500">
+            <p>Open the browser console for a type-check log. Common fixes:</p>
+            <ol className="list-decimal pl-5">
+              <li>Ensure the component file exports a default (or adjust the import).</li>
+              <li>Use client-only dynamic imports for components that rely on browser-only modules.</li>
+              <li>Clear <code>.next</code> and restart the dev server.</li>
+            </ol>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   // State management
   const [images, setImages] = useState([])
   const [currentImageIndex, setCurrentImageIndex] = useState(null)
@@ -244,22 +286,29 @@ export default function Home() {
         {/* Tab Navigation */}
         <div className="mb-6">
           <div className="flex flex-wrap justify-center gap-2">
-            {tabs.map((tab) => (
-              <motion.button
-                key={tab.id}
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all duration-200 ${
-                  activeTab === tab.id
-                    ? 'bg-blue-600 text-white shadow-lg'
-                    : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
-                }`}
-              >
-                {React.createElement(tab.icon, { className: 'w-4 h-4' })}
-                {tab.label}
-              </motion.button>
-            ))}
+            {tabs.map((tab) => {
+              const IconComp = tab.icon
+              // debug log icon type
+              if (typeof window !== 'undefined' && typeof IconComp === 'undefined') {
+                console.warn('Tab icon undefined for', tab.id)
+              }
+              return (
+                <motion.button
+                  key={tab.id}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all duration-200 ${
+                    activeTab === tab.id
+                      ? 'bg-blue-600 text-white shadow-lg'
+                      : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+                  }`}
+                >
+                  {IconComp ? <IconComp className="w-4 h-4" /> : <span className="w-4 h-4 inline-block" />}
+                  {tab.label}
+                </motion.button>
+              )
+            })}
           </div>
         </div>
 
