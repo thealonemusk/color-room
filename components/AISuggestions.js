@@ -1,14 +1,20 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { FiZap, FiPalette, FiLoader, FiStar } from 'react-icons/fi'
 import { fetchPalettes } from '../utils/gemini'
 
-export default function AISuggestions({ onApply = () => {} }) {
+export default function AISuggestions({ onApply = () => {}, onPreview = null, autoSuggestions = [] }) {
   const [roomType, setRoomType] = useState('bedroom')
   const [stylePref, setStylePref] = useState('modern')
   const [loading, setLoading] = useState(false)
   const [palettes, setPalettes] = useState([])
   const [error, setError] = useState(null)
+
+  useEffect(() => {
+    if (autoSuggestions && autoSuggestions.length > 0) {
+      setPalettes(prev => [{ title: 'Auto Suggestions', description: 'Colors extracted from your image', colors: autoSuggestions.map((hex, i) => ({ name: `Auto ${i+1}`, hex })) }, ...prev])
+    }
+  }, [autoSuggestions])
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -27,7 +33,17 @@ export default function AISuggestions({ onApply = () => {} }) {
   }
 
   function handleColorClick(color) {
+    // default apply behaviour
     onApply(color.hex)
+  }
+
+  async function handlePreview(color) {
+    if (onPreview) {
+      await onPreview(color.hex)
+    } else {
+      // fallback to apply behaviour if preview not provided
+      onApply(color.hex)
+    }
   }
 
   return (
@@ -144,21 +160,23 @@ export default function AISuggestions({ onApply = () => {} }) {
                 
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
                   {palette.colors.map((color, idx) => (
-                    <motion.button
-                      key={idx}
-                      initial={{ opacity: 0, scale: 0.8 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      transition={{ delay: (i * 0.1) + (idx * 0.05) }}
-                      onClick={() => handleColorClick(color)}
-                      className="group relative aspect-square rounded-lg shadow-md hover:shadow-lg transition-all duration-200 transform hover:scale-105"
-                      style={{ backgroundColor: color.hex }}
-                      title={`${color.name} (${color.hex})`}
-                    >
-                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors duration-200 rounded-lg" />
-                      <div className="absolute bottom-2 left-2 right-2 bg-black/70 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                        {color.name}
+                    <div key={idx} className="flex flex-col items-stretch gap-2">
+                      <motion.button
+                        initial={{ opacity: 0, scale: 0.8 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        transition={{ delay: (i * 0.1) + (idx * 0.05) }}
+                        onClick={() => handleColorClick(color)}
+                        className="group relative aspect-square rounded-lg shadow-md hover:shadow-lg transition-all duration-200 transform hover:scale-105"
+                        style={{ backgroundColor: color.hex }}
+                        title={`${color.name} (${color.hex})`}
+                      >
+                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors duration-200 rounded-lg" />
+                      </motion.button>
+                      <div className="flex gap-2">
+                        <button onClick={() => handlePreview(color)} className="btn-secondary text-sm flex-1">Preview</button>
+                        <button onClick={() => onApply(color.hex)} className="btn-primary text-sm flex-1">Apply</button>
                       </div>
-                    </motion.button>
+                    </div>
                   ))}
                 </div>
               </motion.div>

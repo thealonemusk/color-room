@@ -1,12 +1,10 @@
-import React, { useState, useRef, useEffect } from 'react'
-import dynamic from 'next/dynamic'
+import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { FiImage, FiEdit3, FiPalette, FiZap, FiEye } from 'react-icons/fi'
+import { FiImage, FiPalette, FiZap, FiEye } from 'react-icons/fi'
 import UploadImage from '../components/UploadImage'
 import ColorPicker from '../components/ColorPicker'
 import AISuggestions from '../components/AISuggestions'
 import BeforeAfterSlider from '../components/BeforeAfterSlider'
-const MaskTool = dynamic(() => import('../components/MaskTool'), { ssr: false })
 import Toolbar from '../components/Toolbar'
 
 export default function Home() {
@@ -15,7 +13,6 @@ export default function Home() {
     if (typeof window === 'undefined') return
     console.log('component types:', {
       UploadImage: typeof UploadImage,
-      MaskTool: typeof MaskTool,
       ColorPicker: typeof ColorPicker,
       AISuggestions: typeof AISuggestions,
       BeforeAfterSlider: typeof BeforeAfterSlider,
@@ -24,44 +21,32 @@ export default function Home() {
     })
   }, [])
 
-  // Debug: check imported component availability and show friendly error if any are undefined
-  const _imports = { UploadImage, MaskTool, ColorPicker, AISuggestions, BeforeAfterSlider, Toolbar }
-  const _invalid = Object.entries(_imports).filter(([, v]) => v === undefined || v === null)
-  if (_invalid.length > 0) {
-    return (
-      <div className="min-h-screen flex items-center justify-center p-8">
-        <div className="max-w-xl w-full bg-white dark:bg-gray-800 rounded-xl p-6 shadow">
-          <h2 className="text-xl font-semibold mb-3 text-red-600">Invalid component imports</h2>
-          <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">One or more components imported by this page are undefined. This causes React to throw "Element type is invalid" when rendering.</p>
-          <ul className="list-disc pl-5 space-y-1 text-sm text-gray-700 dark:text-gray-300">
-            {_invalid.map(([name]) => (
-              <li key={name}><strong>{name}</strong> is undefined</li>
-            ))}
-          </ul>
-          <div className="mt-4 text-sm text-gray-500">
-            <p>Open the browser console for a type-check log. Common fixes:</p>
-            <ol className="list-decimal pl-5">
-              <li>Ensure the component file exports a default (or adjust the import).</li>
-              <li>Use client-only dynamic imports for components that rely on browser-only modules.</li>
-              <li>Clear <code>.next</code> and restart the dev server.</li>
-            </ol>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  // State management
+  // State management (no masking; AI-only workflow)
   const [images, setImages] = useState([])
   const [currentImageIndex, setCurrentImageIndex] = useState(null)
-  const [masks, setMasks] = useState([])
-  const [selectedMaskIndex, setSelectedMaskIndex] = useState(null)
   const [recoloredDataUrl, setRecoloredDataUrl] = useState(null)
   const [currentColor, setCurrentColor] = useState('#ff0000')
   const [savedColors, setSavedColors] = useState([])
   const [isDarkMode, setIsDarkMode] = useState(false)
   const [activeTab, setActiveTab] = useState('upload')
   const [error, setError] = useState(null)
+  const [bestMatches, setBestMatches] = useState([])
+
+  // Recompute best-match suggestions when image changes (no masks)
+  useEffect(() => {
+    async function computeMatches() {
+      const url = currentImage?.url
+      if (!url) return setBestMatches([])
+      try {
+        const matches = await extractBestMatchColors(url, 5)
+        setBestMatches(matches)
+      } catch (err) {
+        console.error('Failed to compute best matches:', err)
+        setBestMatches([])
+      }
+    }
+    computeMatches()
+  }, [currentImageIndex, currentImage?.url])
 
   // Dark mode effect
   useEffect(() => {
@@ -72,6 +57,50 @@ export default function Home() {
     }
   }, [isDarkMode])
 
+  // Compute simple palette from the whole image (sparse sampling)
+  async function extractBestMatchColors(imageUrl, count = 5) {
+    return new Promise((res, rej) => {
+      const img = new Image()
+      img.crossOrigin = 'anonymous'
+      img.onload = () => {
+        try {
+          const canvas = document.createElement('canvas')
+          const w = img.naturalWidth || img.width
+          const h = img.naturalHeight || img.height
+          const maxSide = 300
+          let sw = w, sh = h
+          if (Math.max(w, h) > maxSide) {
+            const scale = maxSide / Math.max(w, h)
+            sw = Math.round(w * scale)
+            sh = Math.round(h * scale)
+          }
+          canvas.width = sw
+          canvas.height = sh
+          const ctx = canvas.getContext('2d')
+          ctx.drawImage(img, 0, 0, sw, sh)
+          const data = ctx.getImageData(0, 0, sw, sh).data
+
+          // simple palette: sparse sample + frequency
+          const freq = {}
+          for (let i = 0; i < data.length; i += 20 * 4) {
+            const r = data[i], g = data[i + 1], b = data[i + 2]
+            const key = `${r},${g},${b}`
+            freq[key] = (freq[key] || 0) + 1
+          }
+          const keys = Object.keys(freq).sort((a, b) => freq[b] - freq[a]).slice(0, count)
+          const toHex = (v) => ('0' + v.toString(16)).slice(-2)
+          const palette = keys.map(k => {
+            const [r, g, b] = k.split(',').map(n => parseInt(n, 10))
+            return `#${toHex(r)}${toHex(g)}${toHex(b)}`
+          })
+          res(palette)
+        } catch (err) { rej(err) }
+      }
+      img.onerror = () => rej(new Error('Image load failed'))
+      img.src = imageUrl
+    })
+  }
+
   // Get current image
   const currentImage = currentImageIndex !== null ? images[currentImageIndex] : null
 
@@ -80,9 +109,8 @@ export default function Home() {
       const newImage = { file, url }
       setImages(prev => [...prev, newImage])
       setCurrentImageIndex(images.length)
-      setMasks([])
       setRecoloredDataUrl(null)
-      setSelectedMaskIndex(null)
+      // bestMatches will be recomputed by effect
     } catch (err) {
       setError('Failed to load image: ' + err.message)
     }
@@ -92,29 +120,11 @@ export default function Home() {
     setImages(prev => prev.filter((_, i) => i !== index))
     if (currentImageIndex === index) {
       setCurrentImageIndex(null)
-      setMasks([])
       setRecoloredDataUrl(null)
+      setBestMatches([])
     } else if (currentImageIndex > index) {
       setCurrentImageIndex(prev => prev - 1)
     }
-  }
-
-  function handleAddMask(mask) {
-    setMasks(prev => [...prev, mask])
-  }
-
-  function handleDeleteMask(index) {
-    setMasks(prev => prev.filter((_, i) => i !== index))
-    if (selectedMaskIndex === index) {
-      setSelectedMaskIndex(null)
-    } else if (selectedMaskIndex > index) {
-      setSelectedMaskIndex(prev => prev - 1)
-    }
-  }
-
-  function handleClearMasks() {
-    setMasks([])
-    setSelectedMaskIndex(null)
   }
 
   function handleSaveColor(color) {
@@ -127,83 +137,43 @@ export default function Home() {
     setSavedColors(prev => prev.filter((_, i) => i !== index))
   }
 
-  // Core: apply color to masked regions using an offscreen canvas
+  // Apply the chosen color to the whole image (AI-driven flow)
   async function applyColorToMasks(hex) {
     try {
       if (!currentImage?.url) return
-    
-    const img = await loadImage(currentImage.url)
-    const w = img.width
-    const h = img.height
 
-    const off = document.createElement('canvas')
-    off.width = w
-    off.height = h
-    const ctx = off.getContext('2d')
+      const img = await loadImage(currentImage.url)
+      const w = img.width
+      const h = img.height
 
-    // draw original
-    ctx.drawImage(img, 0, 0, w, h)
+      const off = document.createElement('canvas')
+      off.width = w
+      off.height = h
+      const ctx = off.getContext('2d')
 
-    if (masks.length === 0) {
-      setRecoloredDataUrl(off.toDataURL('image/png'))
-      return off.toDataURL('image/png')
-    }
+      // draw original
+      ctx.drawImage(img, 0, 0, w, h)
 
-    // create colored layer only inside masks
-    const colorLayer = document.createElement('canvas')
-    colorLayer.width = w
-    colorLayer.height = h
-    const cctx = colorLayer.getContext('2d')
+      // Apply color to whole image: create a color layer and blend to preserve texture
+      const colorLayer = document.createElement('canvas')
+      colorLayer.width = w
+      colorLayer.height = h
+      const cctx = colorLayer.getContext('2d')
+      cctx.fillStyle = hex
+      cctx.fillRect(0, 0, w, h)
 
-    // fill each mask path on color layer
-    cctx.fillStyle = hex
+      // Blend the color layer onto original while preserving texture
+      ctx.globalCompositeOperation = 'multiply'
+      ctx.drawImage(colorLayer, 0, 0)
+      ctx.globalCompositeOperation = 'screen'
+      ctx.globalAlpha = 0.15
+      ctx.drawImage(colorLayer, 0, 0)
+      ctx.globalAlpha = 1
+      ctx.globalCompositeOperation = 'source-over'
 
-    masks.forEach((m) => {
-      const pts = m.points
-      if (!pts || pts.length < 6) return
-      cctx.beginPath()
-      cctx.moveTo(pts[0], pts[1])
-      for (let i = 2; i < pts.length; i += 2) cctx.lineTo(pts[i], pts[i + 1])
-      cctx.closePath()
-      cctx.fill()
-    })
-
-    // Blend the color layer onto original while preserving texture
-    const maskedColor = document.createElement('canvas')
-    maskedColor.width = w
-    maskedColor.height = h
-    const mctx = maskedColor.getContext('2d')
-
-    // draw color layer
-    mctx.drawImage(colorLayer, 0, 0)
-    // keep color only where mask exists
-    mctx.globalCompositeOperation = 'destination-in'
-    // draw mask paths
-    mctx.beginPath()
-    masks.forEach((m) => {
-      const pts = m.points
-      if (!pts || pts.length < 6) return
-      mctx.moveTo(pts[0], pts[1])
-      for (let i = 2; i < pts.length; i += 2) mctx.lineTo(pts[i], pts[i + 1])
-      mctx.closePath()
-    })
-    mctx.fill()
-
-    // composite: draw original then draw maskedColor with 'multiply' to preserve texture
-    ctx.globalCompositeOperation = 'source-over'
-    ctx.drawImage(img, 0, 0, w, h)
-    ctx.globalCompositeOperation = 'multiply'
-    ctx.drawImage(maskedColor, 0, 0)
-    // draw maskedColor again with 'screen' at low alpha to bring back brightness
-    ctx.globalCompositeOperation = 'screen'
-    ctx.globalAlpha = 0.2
-    ctx.drawImage(maskedColor, 0, 0)
-    ctx.globalAlpha = 1
-    ctx.globalCompositeOperation = 'source-over'
-
-    const dataUrl = off.toDataURL('image/png')
-    setRecoloredDataUrl(dataUrl)
-    return dataUrl
+      const dataUrl = off.toDataURL('image/png')
+      setRecoloredDataUrl(dataUrl)
+      return dataUrl
     } catch (err) {
       setError('Failed to apply color: ' + err.message)
       return null
@@ -231,7 +201,6 @@ export default function Home() {
 
   const tabs = [
     { id: 'upload', label: 'Upload', icon: FiImage },
-    { id: 'mask', label: 'Mask', icon: FiEdit3 },
     { id: 'color', label: 'Color', icon: FiPalette },
     { id: 'ai', label: 'AI', icon: FiZap },
     { id: 'compare', label: 'Compare', icon: FiEye }
@@ -244,7 +213,7 @@ export default function Home() {
         <div className="text-center">
           <h1 className="text-2xl font-bold text-red-600 mb-4">Something went wrong</h1>
           <p className="text-gray-600 dark:text-gray-400 mb-4">{error}</p>
-          <button 
+          <button
             onClick={() => setError(null)}
             className="btn-primary"
           >
@@ -258,9 +227,9 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800 transition-colors duration-300">
       {/* Toolbar */}
-      <Toolbar 
-        onToggleDarkMode={() => setIsDarkMode(!isDarkMode)} 
-        isDarkMode={isDarkMode} 
+      <Toolbar
+        onToggleDarkMode={() => setIsDarkMode(!isDarkMode)}
+        isDarkMode={isDarkMode}
       />
 
       {/* Header */}
@@ -275,7 +244,7 @@ export default function Home() {
               Virtual House Painter
             </h1>
             <p className="text-lg text-gray-600 dark:text-gray-400 max-w-2xl mx-auto">
-              Transform your room photos with AI-powered color suggestions and professional masking tools
+              Transform your room photos with AI-generated color suggestions
             </p>
           </motion.div>
         </div>
@@ -288,10 +257,6 @@ export default function Home() {
           <div className="flex flex-wrap justify-center gap-2">
             {tabs.map((tab) => {
               const IconComp = tab.icon
-              // debug log icon type
-              if (typeof window !== 'undefined' && typeof IconComp === 'undefined') {
-                console.warn('Tab icon undefined for', tab.id)
-              }
               return (
                 <motion.button
                   key={tab.id}
@@ -335,11 +300,6 @@ export default function Home() {
                   alt="Current"
                   className="max-h-64 w-auto mx-auto rounded-lg shadow-md"
                 />
-                {masks.length > 0 && (
-                  <div className="absolute top-2 right-2 bg-blue-600 text-white px-2 py-1 rounded-full text-xs">
-                    {masks.length} mask{masks.length !== 1 ? 's' : ''}
-                  </div>
-                )}
               </div>
             </div>
           </motion.div>
@@ -362,18 +322,6 @@ export default function Home() {
               />
             )}
 
-            {activeTab === 'mask' && (
-              <MaskTool
-                imageURL={currentImage?.url}
-                onAddMask={handleAddMask}
-                masks={masks}
-                onClear={handleClearMasks}
-                onDeleteMask={handleDeleteMask}
-                selectedMaskIndex={selectedMaskIndex}
-                onSelectMask={setSelectedMaskIndex}
-              />
-            )}
-
             {activeTab === 'color' && (
               <ColorPicker
                 value={currentColor}
@@ -388,10 +336,9 @@ export default function Home() {
 
             {activeTab === 'ai' && (
               <AISuggestions
-                onApply={(hex) => {
-                  setCurrentColor(hex)
-                  applyColorToMasks(hex)
-                }}
+                onApply={(hex) => { applyColorToMasks(hex); setActiveTab('compare') }}
+                onPreview={(hex) => applyColorToMasks(hex)}
+                autoSuggestions={bestMatches}
               />
             )}
 
@@ -399,55 +346,12 @@ export default function Home() {
               <BeforeAfterSlider
                 original={currentImage?.url}
                 recolored={recoloredDataUrl}
-                onExport={handleExport}
+                onExport={() => handleExport('png')}
               />
             )}
           </motion.div>
         </AnimatePresence>
-
-        {/* Quick Actions */}
-        {currentImage && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mt-8"
-          >
-            <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-lg">
-              <h3 className="font-semibold mb-4">Quick Actions</h3>
-              <div className="flex flex-wrap gap-3">
-                <button
-                  onClick={() => applyColorToMasks(currentColor)}
-                  className="btn-primary"
-                >
-                  Apply Current Color
-                </button>
-                <button
-                  onClick={() => setRecoloredDataUrl(null)}
-                  className="btn-secondary"
-                >
-                  Reset Recolor
-                </button>
-                <button
-                  onClick={() => handleExport('png')}
-                  className="btn-success"
-                >
-                  Export PNG
-                </button>
-              </div>
-            </div>
-          </motion.div>
-        )}
       </main>
-
-      {/* Footer */}
-      <footer className="border-t border-gray-200 dark:border-gray-700 py-6 mt-12">
-        <div className="container text-center text-gray-500 dark:text-gray-400">
-          <p>Virtual House Painter • Built with Next.js, TailwindCSS & Gemini AI</p>
-          <p className="text-sm mt-2">
-            Upload your room photos, create masks, and experiment with AI-suggested color palettes
-          </p>
-        </div>
-      </footer>
     </div>
   )
 }
