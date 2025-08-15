@@ -31,6 +31,10 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState('upload')
   const [error, setError] = useState(null)
   const [bestMatches, setBestMatches] = useState([])
+  // mask sensitivity and preview UI
+  const [maskSensitivity, setMaskSensitivity] = useState(1.0) // 0.6..1.6, higher => more permissive
+  const [maskPreviewUrl, setMaskPreviewUrl] = useState(null)
+  const [autoMaskPreview, setAutoMaskPreview] = useState(false)
 
   // Recompute best-match suggestions when image changes (no masks)
   useEffect(() => {
@@ -137,7 +141,146 @@ export default function Home() {
     setSavedColors(prev => prev.filter((_, i) => i !== index))
   }
 
-  // Apply the chosen color to the whole image (AI-driven flow)
+  // Heuristic wall mask detector and masked apply
+  async function detectWallMask(imageUrl, opts = { maxSide: 300, sensitivity: 1.0 }) {
+    return new Promise((resolve, reject) => {
+      const img = new Image()
+      img.crossOrigin = 'anonymous'
+      img.onload = () => {
+        try {
+          const w = img.naturalWidth || img.width
+          const h = img.naturalHeight || img.height
+          const maxSide = opts.maxSide || 300
+          let sw = w, sh = h
+          if (Math.max(w, h) > maxSide) {
+            const scale = maxSide / Math.max(w, h)
+            sw = Math.round(w * scale)
+            sh = Math.round(h * scale)
+          }
+
+          const canvas = document.createElement('canvas')
+          canvas.width = sw
+          canvas.height = sh
+          const ctx = canvas.getContext('2d')
+          ctx.drawImage(img, 0, 0, sw, sh)
+          const imgData = ctx.getImageData(0, 0, sw, sh)
+          const data = imgData.data
+
+          // grayscale
+          const gray = new Float32Array(sw * sh)
+          for (let i = 0, p = 0; i < data.length; i += 4, p++) {
+            gray[p] = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]
+          }
+
+          // compute local variance over a small window
+          const radius = 2 // 5x5 neighborhood
+          const variance = new Float32Array(sw * sh)
+          for (let y = 0; y < sh; y++) {
+            for (let x = 0; x < sw; x++) {
+              let sum = 0, sumSq = 0, count = 0
+              for (let oy = -radius; oy <= radius; oy++) {
+                const ny = y + oy
+                if (ny < 0 || ny >= sh) continue
+                for (let ox = -radius; ox <= radius; ox++) {
+                  const nx = x + ox
+                  if (nx < 0 || nx >= sw) continue
+                  const v = gray[ny * sw + nx]
+                  sum += v
+                  sumSq += v * v
+                  count++
+                }
+              }
+              const mean = sum / count
+              variance[y * sw + x] = Math.max(0, sumSq / count - mean * mean)
+            }
+          }
+
+          // adaptive threshold using sensitivity
+          let totalVar = 0
+          for (let i = 0; i < variance.length; i++) totalVar += variance[i]
+          const avgVar = totalVar / variance.length
+          const s = typeof opts.sensitivity === 'number' ? opts.sensitivity : 1.0
+          const thresh = Math.max(40, avgVar * (0.9 * s))
+
+          const mask = new Uint8ClampedArray(sw * sh)
+          for (let i = 0; i < variance.length; i++) {
+            mask[i] = variance[i] < thresh ? 1 : 0
+          }
+
+          // connected components to remove small regions
+          const visited = new Uint8Array(sw * sh)
+          const comps = []
+          for (let i = 0; i < mask.length; i++) {
+            if (visited[i] || mask[i] === 0) continue
+            const queue = [i]
+            visited[i] = 1
+            let head = 0
+            while (head < queue.length) {
+              const idx = queue[head++];
+              const y = Math.floor(idx / sw), x = idx % sw
+              for (let ny = Math.max(0, y - 1); ny <= Math.min(sh - 1, y + 1); ny++) {
+                for (let nx = Math.max(0, x - 1); nx <= Math.min(sw - 1, x + 1); nx++) {
+                  const nidx = ny * sw + nx
+                  if (visited[nidx] || mask[nidx] === 0) continue
+                  visited[nidx] = 1
+                  queue.push(nidx)
+                }
+              }
+            }
+            comps.push(queue)
+          }
+
+          const area = sw * sh
+          const keep = new Uint8ClampedArray(sw * sh)
+          const minSize = Math.max(40, Math.floor(area * 0.03 * (1 / s))) // sensitivity influences min size
+          comps.forEach(c => {
+            if (c.length >= minSize) {
+              for (let j = 0; j < c.length; j++) keep[c[j]] = 1
+            }
+          })
+
+          const keptCount = keep.reduce((s2, v) => s2 + v, 0)
+          if (keptCount === 0) {
+            for (let i = 0; i < variance.length; i++) {
+              keep[i] = variance[i] < Math.max(30, avgVar * (1.2 * s)) ? 1 : 0
+            }
+          }
+
+          // build mask canvas with alpha
+          const maskCanvas = document.createElement('canvas')
+          maskCanvas.width = sw
+          maskCanvas.height = sh
+          const mctx = maskCanvas.getContext('2d')
+          const out = mctx.createImageData(sw, sh)
+          for (let i = 0; i < sw * sh; i++) {
+            const v = keep[i] ? 255 : 0
+            out.data[i * 4 + 0] = 255
+            out.data[i * 4 + 1] = 255
+            out.data[i * 4 + 2] = 255
+            out.data[i * 4 + 3] = v
+          }
+          mctx.putImageData(out, 0, 0)
+
+          if (sw !== w || sh !== h) {
+            const big = document.createElement('canvas')
+            big.width = w
+            big.height = h
+            const bctx = big.getContext('2d')
+            bctx.imageSmoothingEnabled = true
+            bctx.drawImage(maskCanvas, 0, 0, w, h)
+            resolve(big)
+          } else {
+            resolve(maskCanvas)
+          }
+        } catch (err) {
+          reject(err)
+        }
+      }
+      img.onerror = () => reject(new Error('Image load failed'))
+      img.src = imageUrl
+    })
+  }
+
   async function applyColorToMasks(hex) {
     try {
       if (!currentImage?.url) return
@@ -145,6 +288,19 @@ export default function Home() {
       const img = await loadImage(currentImage.url)
       const w = img.width
       const h = img.height
+
+      // generate a wall mask (canvas with alpha channel)
+      const maskCanvas = await detectWallMask(currentImage.url, { maxSide: 400, sensitivity: maskSensitivity })
+      let maskForUse = maskCanvas
+      if (maskCanvas.width !== w || maskCanvas.height !== h) {
+        const s = document.createElement('canvas')
+        s.width = w
+        s.height = h
+        const sctx = s.getContext('2d')
+        sctx.imageSmoothingEnabled = true
+        sctx.drawImage(maskCanvas, 0, 0, w, h)
+        maskForUse = s
+      }
 
       const off = document.createElement('canvas')
       off.width = w
@@ -154,7 +310,7 @@ export default function Home() {
       // draw original
       ctx.drawImage(img, 0, 0, w, h)
 
-      // Apply color to whole image: create a color layer and blend to preserve texture
+      // create color layer
       const colorLayer = document.createElement('canvas')
       colorLayer.width = w
       colorLayer.height = h
@@ -162,12 +318,22 @@ export default function Home() {
       cctx.fillStyle = hex
       cctx.fillRect(0, 0, w, h)
 
-      // Blend the color layer onto original while preserving texture
+      // create masked color by keeping color only where mask alpha > 0
+      const maskedColor = document.createElement('canvas')
+      maskedColor.width = w
+      maskedColor.height = h
+      const mctx = maskedColor.getContext('2d')
+      mctx.drawImage(colorLayer, 0, 0)
+      mctx.globalCompositeOperation = 'destination-in'
+      mctx.drawImage(maskForUse, 0, 0)
+      mctx.globalCompositeOperation = 'source-over'
+
+      // composite maskedColor onto original while preserving texture
       ctx.globalCompositeOperation = 'multiply'
-      ctx.drawImage(colorLayer, 0, 0)
+      ctx.drawImage(maskedColor, 0, 0)
       ctx.globalCompositeOperation = 'screen'
       ctx.globalAlpha = 0.15
-      ctx.drawImage(colorLayer, 0, 0)
+      ctx.drawImage(maskedColor, 0, 0)
       ctx.globalAlpha = 1
       ctx.globalCompositeOperation = 'source-over'
 
@@ -177,6 +343,17 @@ export default function Home() {
     } catch (err) {
       setError('Failed to apply color: ' + err.message)
       return null
+    }
+  }
+
+  async function generateMaskPreview() {
+    if (!currentImage?.url) return setMaskPreviewUrl(null)
+    try {
+      const m = await detectWallMask(currentImage.url, { maxSide: 400, sensitivity: maskSensitivity })
+      setMaskPreviewUrl(m.toDataURL())
+    } catch (err) {
+      console.warn('Failed to generate mask preview', err)
+      setMaskPreviewUrl(null)
     }
   }
 
@@ -335,11 +512,41 @@ export default function Home() {
             )}
 
             {activeTab === 'ai' && (
-              <AISuggestions
-                onApply={(hex) => { applyColorToMasks(hex); setActiveTab('compare') }}
-                onPreview={(hex) => applyColorToMasks(hex)}
-                autoSuggestions={bestMatches}
-              />
+              <div>
+                <div className="mb-4 flex items-center gap-3">
+                  <label className="text-sm">Mask sensitivity</label>
+                  <input
+                    type="range"
+                    min="0.6"
+                    max="1.6"
+                    step="0.05"
+                    value={maskSensitivity}
+                    onChange={(e) => setMaskSensitivity(parseFloat(e.target.value))}
+                    className="w-48"
+                  />
+                  <div className="text-sm px-2">{maskSensitivity.toFixed(2)}</div>
+                  <button onClick={generateMaskPreview} className="btn-secondary text-sm">Preview Mask</button>
+                  <label className="flex items-center gap-2 text-sm ml-3">
+                    <input type="checkbox" checked={autoMaskPreview} onChange={(e) => setAutoMaskPreview(e.target.checked)} /> Auto-preview
+                  </label>
+                </div>
+
+                <AISuggestions
+                  onApply={(hex) => { applyColorToMasks(hex); setActiveTab('compare') }}
+                  onPreview={(hex) => applyColorToMasks(hex)}
+                  autoSuggestions={bestMatches}
+                />
+
+                {maskPreviewUrl && currentImage && (
+                  <div className="mt-4">
+                    <h4 className="text-sm font-medium mb-2">Detected mask preview</h4>
+                    <div className="relative bg-white dark:bg-gray-800 rounded-lg p-3 inline-block">
+                      <img src={currentImage.url} alt="orig" className="max-h-40 rounded" />
+                      <img src={maskPreviewUrl} alt="mask" style={{ position: 'absolute', top: 12, left: 12, maxHeight: 160, opacity: 0.45, mixBlendMode: 'screen' }} />
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
 
             {activeTab === 'compare' && (
